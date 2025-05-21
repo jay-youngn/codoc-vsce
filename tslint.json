@@ -1,0 +1,38 @@
+{
+    "extends": "tslint:recommended",
+    "rules": {
+        "quotemark": [
+            true,
+            "single"
+        ],
+        "indent": [
+            true,
+            "spaces",
+            2
+        ],
+        "semicolon": [
+            true,
+            "always"
+        ],
+        "no-console": [
+            true,
+            "log"
+        ],
+        "curly": true,
+        "triple-equals": true,
+        "no-string-throw": true,
+        "max-classes-per-file": [
+            true,
+            1
+        ],
+        "no-unnecessary-class": true,
+        "member-ordering": [
+            true,
+            {
+                "order": "fields-first"
+            }
+        ],
+        "interface-name": false,
+        "object-literal-sort-keys": false
+    }
+}

@@ -1,0 +1,294 @@
+{
+  "name": "codoc",
+  "publisher": "jay-youngn",
+  "displayName": "CoDoc",
+  "description": "A VS Code extension for generating structured code documentation comments",
+  "version": "0.0.2",
+  "icon": "resources/doc.png",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Formatters",
+    "Snippets"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://gitlab.linctex.com/devops/docs-as-code/vscode-extension"
+  },
+  "extensionDependencies": [
+    "edwinhuish.better-comments-next"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "codoc-explorer",
+          "title": "CoDoc",
+          "icon": "resources/code.png"
+        }
+      ]
+    },
+    "views": {
+      "codoc-explorer": [
+        {
+          "id": "codoc-tree",
+          "name": "Explorer",
+          "icon": "resources/code.png",
+          "contextualTitle": "CoDoc",
+          "type": "tree"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "category": "CoDoc",
+        "command": "codoc.scan",
+        "enablement": "view == codoc-tree && codoc.scanEnabled",
+        "icon": "$(refresh)",
+        "title": "扫描文档注释"
+      },
+      {
+        "category": "CoDoc",
+        "command": "codoc.exportDocs",
+        "enablement": "view == codoc-tree && codoc.exportEnabled",
+        "icon": "$(link-external)",
+        "title": "导出文档注释"
+      },
+      {
+        "category": "CoDoc",
+        "command": "codoc.viewByType",
+        "enablement": "view == codoc-tree && codoc.viewModeEnabled",
+        "title": "按类型查看"
+      },
+      {
+        "category": "CoDoc",
+        "command": "codoc.viewByDomain",
+        "enablement": "view == codoc-tree && codoc.viewModeEnabled",
+        "title": "按领域查看"
+      },
+      {
+        "category": "CoDoc",
+        "command": "codoc.viewByReq",
+        "enablement": "view == codoc-tree && codoc.viewModeEnabled",
+        "title": "按需求查看"
+      },
+      {
+        "category": "CoDoc",
+        "command": "codoc.filter",
+        "enablement": "view == codoc-tree && codoc.filterEnabled",
+        "icon": "$(filter)",
+        "title": "筛选文档"
+      },
+      {
+        "category": "CoDoc",
+        "command": "codoc.filterClear",
+        "enablement": "view == codoc-tree && codoc.filterClearEnabled",
+        "icon": "$(clear-all)",
+        "title": "清除筛选"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "go",
+        "path": "./snippets/comments.code-snippets"
+      },
+      {
+        "language": "php",
+        "path": "./snippets/comments.code-snippets"
+      },
+      {
+        "language": "javascript",
+        "path": "./snippets/comments.code-snippets"
+      },
+      {
+        "language": "typescript",
+        "path": "./snippets/comments.code-snippets"
+      },
+      {
+        "language": "javascriptreact",
+        "path": "./snippets/comments.code-snippets"
+      },
+      {
+        "language": "typescriptreact",
+        "path": "./snippets/comments.code-snippets"
+      },
+      {
+        "language": "java",
+        "path": "./snippets/comments.code-snippets"
+      },
+      {
+        "language": "cpp",
+        "path": "./snippets/comments.code-snippets"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "codoc.scan",
+          "group": "navigation@1",
+          "when": "view == codoc-tree"
+        },
+        {
+          "command": "codoc.filter",
+          "group": "navigation@2",
+          "when": "view == codoc-tree && !codoc.isFiltering"
+        },
+        {
+          "command": "codoc.filterClear",
+          "group": "navigation@2",
+          "when": "view == codoc-tree && codoc.isFiltering"
+        },
+        {
+          "command": "codoc.exportDocs",
+          "group": "navigation@3",
+          "when": "view == codoc-tree"
+        },
+        {
+          "command": "codoc.viewByType",
+          "group": "viewMode",
+          "when": "view == codoc-tree"
+        },
+        {
+          "command": "codoc.viewByDomain",
+          "group": "viewMode",
+          "when": "view == codoc-tree"
+        },
+        {
+          "command": "codoc.viewByReq",
+          "group": "viewMode",
+          "when": "view == codoc-tree"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "CoDoc",
+      "properties": {
+        "codoc.highlightEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否启用文档注释高亮"
+        },
+        "codoc.better-comments.languages": {
+          "type": "array",
+          "default": [
+            {
+              "id": "proto3",
+              "comments": {
+                "lineComment": "//"
+              },
+              "embeddedLanguages": [
+                "proto3"
+              ]
+            }
+          ]
+        },
+        "codoc.decorator.regexes": {
+          "type": "object",
+          "description": "Object mapping regexes to an array of decorations to apply to the capturing groups",
+          "default": {
+            "(?:\\/\\/\\s*)(@summary)": {
+              "decorationType": {
+                "light": {
+                  "color": "#3498DB",
+                  "fontStyle": "italic"
+                },
+                "dark": {
+                  "color": "#3498DB",
+                  "fontStyle": "italic"
+                }
+              }
+            }
+          }
+        },
+        "codoc.better-comments.tags": {
+          "type": "array",
+          "default": [
+            {
+              "tag": [
+                "@summary",
+                "@endsummary"
+              ],
+              "source": "codoc:summary",
+              "multiline": true,
+              "italic": true,
+              "color": "#3498DB"
+            },
+            {
+              "tag": [
+                "@decision",
+                "@endDecision"
+              ],
+              "source": "codoc:decision",
+              "multiline": true,
+              "italic": true,
+              "color": "#F39C12"
+            },
+            {
+              "tag": [
+                "@testFocus",
+                "@endTestFocus"
+              ],
+              "source": "codoc:testFocus",
+              "multiline": true,
+              "italic": true,
+              "color": "#98C379"
+            },
+            {
+              "tag": [
+                "@fix",
+                "@endfix"
+              ],
+              "source": "codoc:fix",
+              "multiline": true,
+              "italic": true,
+              "color": "#FF2D00"
+            },
+            {
+              "tag": [
+                "@feature",
+                "@endfeature"
+              ],
+              "source": "codoc:feature",
+              "multiline": true,
+              "italic": true,
+              "color": "#CE91C8"
+            }
+          ],
+          "description": "Better Comments 扩展的配置项模板，辅助进行文档注释的高亮显示"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "webpack",
+    "watch": "webpack --watch",
+    "package": "webpack --mode production --devtool hidden-source-map",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "lint": "tslint -p .",
+    "test": "node ./out/test/runTest.js",
+    "build": "tsc -p ./",
+    "deploy": "vsce package"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "devDependencies": {
+    "@types/minimatch": "^5.1.2",
+    "@types/node": "^22.14.0",
+    "@types/vscode": "^1.80.0",
+    "minimatch": "^10.0.1",
+    "ts-loader": "^9.5.2",
+    "typescript": "^5.8.3",
+    "webpack": "^5.99.5",
+    "webpack-cli": "^6.0.1"
+  }
+}

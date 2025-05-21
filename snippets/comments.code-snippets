@@ -1,0 +1,131 @@
+{
+  "Summary Documentation Comment": {
+    "prefix": "doc-summary",
+    "body": [
+      "// @summary(${1:需求ID}) ${2:<输入此“方案概要”的标题>}",
+      "//  - context: ${3:[必填]背景与上下文，解释这个功能在哪个大环境下}",
+      "//  - why: ${4:[必填]需求背景/为什么需要这个方案}",
+      "//  - how: ${5:[必填]技术实现方案概述}",
+      "//  - domain: ${6:[可选]关联业务领域ID，如\"user,order,payment\"}",
+      "// @endSummary"
+    ],
+    "description": "插入标准方案概要文档注释模板"
+  },
+  "Decision Documentation Comment": {
+    "prefix": "doc-decision",
+    "body": [
+      "// @decision ${1:<输入此“决策点”的标题>}",
+      "//  - why: ${2:[必填]决策意图/为什么要做这个决策}",
+      "//  - how: ${3:[必填]概括此决策的实现}",
+      "//  - risk: ${4:[可选]潜在的风险点描述}",
+      "//  - req: ${5:[可选]关联需求ID（逗号分隔）}",
+      "//  - domain: ${6:[可选]关联业务领域ID，如\"user,order,payment\"}",
+      "// @endDecision"
+    ],
+    "description": "插入设计决策点注释模板"
+  },
+  "Test Focus Documentation Comment": {
+    "prefix": "doc-testFocus",
+    "body": [
+      "// @testFocus ${1:<输入此“测试重点”的标题>}",
+      "//  - req: ${2:[必填]关联需求ID（逗号分隔）}",
+      "//  - usecase: ${3:[必填]一句话说清测试场景}",
+      "//  - businessRule: ${4:[必填]可执行描述（业务规则/如何触发）}",
+      "//  - checkMethod: ${5:[可选]针对性验证方法}",
+      "//  - risk: ${6:[可选]潜在风险点描述}",
+      "//  - domain: ${7:[可选]关联业务领域ID，如\"user,order,payment\"}",
+      "// @endTestFocus"
+    ],
+    "description": "插入测试重点注释模板"
+  },
+  "Bug Fix Documentation Comment": {
+    "prefix": "doc-fix",
+    "body": [
+      "// @fix(${1:BUG编号}) ${2:<输入此“BUG修复”的标题>}",
+      "//  - req: ${3:[可选]关联需求ID，如\"CLOUD-123,CLOUD-456\"}",
+      "//  - why: ${4:[必填]BUG原因/为什么要改这里}",
+      "//  - how: ${5:[必填]当前修复方案简述}",
+      "//  - risk: ${6:[可选]潜在的风险点描述}",
+      "//  - domain: ${7:[可选]关联业务领域ID，如\"user,order,payment\"}",
+      "// @endFix"
+    ],
+    "description": "插入BUG修复注释模板"
+  },
+  "Feature Points Documentation Comment": {
+    "prefix": "doc-feature",
+    "body": [
+      "// @feature ${1:featureTitle}",
+      "//  - req: ${2:[可选]关联需求ID，如\"CLOUD-123,CLOUD-456\"}",
+      "//  - ${3:可自定义kv}: ${4:自由撰写markdown列表, 支持多级}",
+      "// @endFeature"
+    ],
+    "description": "插入功能标记注释模板"
+  },
+  "[DocBlock] Summary Documentation Comment": {
+    "scope": "php,javascript,typescript,javascriptreact,typescriptreact",
+    "prefix": "@summary",
+    "body": [
+      "@summary(${1:需求ID}) ${2:<输入此“方案概要”的标题>}",
+      "*  - context: ${3:[必填]背景与上下文，解释这个功能在哪个大环境下}",
+      "*  - why: ${4:[必填]需求背景/为什么需要这个方案}",
+      "*  - how: ${5:[必填]技术实现方案概述}",
+      "*  - domain: ${6:[可选]关联业务领域ID，如\"user,order,payment\"}",
+      "* @endSummary"
+    ],
+    "description": "插入标准方案概要文档注释模板 (DocBlock)"
+  },
+  "[DocBlock] Decision Documentation Comment": {
+    "scope": "php,javascript,typescript,javascriptreact,typescriptreact",
+    "prefix": "@decision",
+    "body": [
+      "@decision ${1:<输入此“决策点”的标题>}",
+      "*  - why: ${2:[必填]决策意图/为什么要做这个决策}",
+      "*  - how: ${3:[必填]概括此决策的实现}",
+      "*  - risk: ${4:[可选]潜在的风险点描述}",
+      "*  - req: ${5:[可选]关联需求ID（逗号分隔）}",
+      "*  - domain: ${6:[可选]关联业务领域ID，如\"user,order,payment\"}",
+      "* @endDecision"
+    ],
+    "description": "插入设计决策点注释模板 (DocBlock)"
+  },
+  "[DocBlock] Test Focus Documentation Comment": {
+    "scope": "php,javascript,typescript,javascriptreact,typescriptreact",
+    "prefix": "@testFocus",
+    "body": [
+      "@testFocus ${1:<输入此“测试重点”的标题>}",
+      "*  - req: ${2:[必填]关联需求ID（逗号分隔）}",
+      "*  - usecase: ${3:[必填]一句话说清测试场景}",
+      "*  - businessRule: ${4:[必填]可执行描述（业务规则/如何触发）}",
+      "*  - checkMethod: ${5:[可选]针对性验证方法}",
+      "*  - risk: ${6:[可选]潜在风险点描述}",
+      "*  - domain: ${7:[可选]关联业务领域ID，如\"user,order,payment\"}",
+      "* @endTestFocus"
+    ],
+    "description": "插入测试重点注释模板 (DocBlock)"
+  },
+  "[DocBlock] Bug Fix Documentation Comment": {
+    "scope": "php,javascript,typescript,javascriptreact,typescriptreact",
+    "prefix": "@fix",
+    "body": [
+      "@fix(${1:BUG编号}) ${2:<输入此“BUG修复”的标题>}",
+      "*  - req: ${3:[可选]关联需求ID，如\"CLOUD-123,CLOUD-456\"}",
+      "*  - why: ${4:[必填]BUG原因/为什么要改这里}",
+      "*  - how: ${5:[必填]当前修复方案简述}",
+      "*  - risk: ${6:[可选]潜在的风险点描述}",
+      "*  - domain: ${7:[可选]关联业务领域ID，如\"user,order,payment\"}",
+      "* @endFix"
+    ],
+    "description": "插入BUG修复注释模板 (DocBlock)"
+  },
+  "[DocBlock] Feature Points Documentation Comment": {
+    "scope": "php,javascript,typescript,javascriptreact,typescriptreact",
+    "prefix": "@feature",
+    "body": [
+      "@feature ${1:featureTitle}",
+      "*  - req: ${2:[可选]关联需求ID，如\"CLOUD-123,CLOUD-456\"}",
+      "*  - ${3:可自定义kv}: ${4:自由撰写markdown列表, 支持多级}",
+      "* @endFeature"
+    ],
+    "description": "插入功能标记注释模板 (DocBlock)"
+  }
+}

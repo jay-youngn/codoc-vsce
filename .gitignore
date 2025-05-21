@@ -1,0 +1,9 @@
+.vscode/
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json
+
+/dist/
+/out/
+node_modules
+*.vsix
