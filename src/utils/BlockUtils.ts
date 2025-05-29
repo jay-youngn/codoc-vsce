@@ -15,11 +15,19 @@ export interface BlockParser {
 }
 
 class BlockTypeSet extends Map<string, string> {
-  public listStandardTypes() {
-    return Array.from(this.keys()).filter(type => type !== 'fix' && type !== 'summary');
+  constructor(
+    private identifiableEntries: [string, string][],
+    private standardEntries?: [string, string][],
+  ) {
+    const entries = identifiableEntries.concat(standardEntries || []);
+    super(entries);
   }
+
   public listIdentifiableTypes() {
-    return ['summary', 'fix'];
+    return this.identifiableEntries.map(entry => entry[0]);
+  }
+  public listStandardTypes() {
+    return this.standardEntries ? this.standardEntries.map(entry => entry[0]) : [];
   }
 }
 
@@ -28,8 +36,11 @@ class BlockTypeSet extends Map<string, string> {
  */
 export class BlockUtils {
   public static blockTypeSet = new BlockTypeSet([
+    // 可标记ID的注解类型
     ['summary', '📝 方案概要'],
     ['fix', '🐛 BUG修复'],
+  ], [
+    // 标准注解类型
     ['decision', '🔍 决策点'],
     ['testFocus', '🧪 测试重点'],
     ['feature', '✨ 功能点'],
