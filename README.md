@@ -1,6 +1,6 @@
 # CoDoc
 
-![Version](https://img.shields.io/badge/Version-0.0.1-blue.svg)
+![Version](https://img.shields.io/badge/Version-0.0.3-blue.svg)
 ![VSCode](https://img.shields.io/badge/VSCode-^1.80.0-brightgreen.svg)
 ![License](https://img.shields.io/badge/License-MIT-orange.svg)
 

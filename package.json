@@ -3,7 +3,7 @@
   "publisher": "jay-youngn",
   "displayName": "CoDoc",
   "description": "A VS Code extension for generating structured code documentation comments",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "icon": "resources/doc.png",
   "engines": {
     "vscode": "^1.80.0"
