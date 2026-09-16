@@ -1,219 +1,122 @@
 import * as vscode from 'vscode';
-
-import { LogService } from '../services/LogService';
-import { ResourceManager } from './ResourceManager';
-import { GitService } from '../services/GitService';
-import { DocumentService } from '../services/DocumentService';
+import { checkCancellation, DocResult, ScanCancelled } from '../models/DocModels';
 import { DocsViewProvider } from '../providers/DocsViewProvider';
 import { CacheService } from '../services/CacheService';
-import { DocParser } from '../utils/DocParser';
-import { NotificationUtils } from '../utils/common/NotificationUtils';
+import { ConfigService } from '../services/ConfigService';
+import { DocumentService } from '../services/DocumentService';
+import { GitService } from '../services/GitService';
+import { LogService } from '../services/LogService';
 
-/**
- * 命令管理器 - 集中管理插件命令注册
- */
-export class CommandManager {
-  /**
-   * 构造函数
-   * @param context 扩展上下文
-   * @param logger 日志服务
-   * @param resourceManager 资源管理器
-   * @param gitService Git服务
-   * @param documentService 文档服务
-   * @param docsViewProvider 文档视图提供者
-   * @param cacheService 缓存服务
-   */
+export class CommandManager implements vscode.Disposable {
+  private busy = false;
+  private disposed = false;
+  private active?: vscode.CancellationTokenSource;
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly logger: LogService,
-    private readonly resourceManager: ResourceManager,
-    private readonly gitService: GitService,
-    private readonly documentService: DocumentService,
-    private readonly docsViewProvider?: DocsViewProvider,
-    private readonly cacheService?: CacheService
+    private readonly documents: DocumentService,
+    private readonly view: DocsViewProvider,
+    private readonly cache: CacheService,
+    private readonly git: GitService,
+    private readonly config: ConfigService,
   ) {}
-
-  /**
-   * 注册所有命令
-   */
   public registerAllCommands(): void {
-    this.registerExportDocsCommand();
-
-    // 如果文档视图提供者存在，则注册相关命令
-    if (this.docsViewProvider) {
-      this.registerDocScannerCommand();
-      this.registerViewByTypeCommand();
-      this.registerViewByDomainCommand();
-      this.registerViewByReqCommand();
-      this.registerExportDocsFromViewCommand();
-
-      // 注意：筛选命令已经在 DocsViewProvider 构造函数中注册
+    const register = (name: string, callback: () => unknown | Promise<unknown>) => {
+      this.context.subscriptions.push(vscode.commands.registerCommand(name, async () => {
+        if (this.disposed) return;
+        try { return await callback(); }
+        catch (error) {
+          if (error instanceof ScanCancelled || error instanceof vscode.CancellationError) return;
+          this.logger.error(`CoDoc 操作失败: ${String(error)}`);
+          void vscode.window.showErrorMessage(`CoDoc: ${error instanceof Error ? error.message : String(error)}`);
+          return undefined;
+        }
+      }));
+    };
+    register('codoc.scan', () => this.withProgress(token => this.scan(token)));
+    register('codoc.exportDocs', () => this.withProgress(async token => {
+      const result = await this.scan(token);
+      if (!result) return;
+      const selected = await this.documents.processResultFilter(this.view.filterDocs(result), token);
+      checkCancellation(token);
+      if (selected) return this.documents.showMarkdownResult(selected);
+    }));
+    register('codoc.readComments', () => this.withProgress(token => this.exportGit(token)));
+    register('codoc.viewByType', () => this.view.setViewMode('byType'));
+    register('codoc.viewByDomain', () => this.view.setViewMode('byDomain'));
+    register('codoc.viewByReq', () => this.view.setViewMode('byReq'));
+    register('codoc.filter', async () => {
+      const text = await vscode.window.showInputBox({ prompt: '筛选标题、内容、编号或领域' });
+      if (text !== undefined) this.view.setFilter(text);
+    });
+    register('codoc.filterClear', () => this.view.setFilter(''));
+    register('codoc.configureHighlighting', () => this.config.configureHighlighting());
+  }
+  private async withProgress<T>(work: (token: vscode.CancellationToken) => Promise<T>): Promise<T | undefined> {
+    if (this.busy) { void vscode.window.showInformationMessage('CoDoc 正在处理另一个操作'); return; }
+    this.busy = true;
+    this.view.setLoading(true);
+    this.active = new vscode.CancellationTokenSource();
+    try {
+      return await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'CoDoc', cancellable: true }, async (_progress, uiToken) => {
+        const subscription = uiToken.onCancellationRequested(() => this.active?.cancel());
+        try {
+          if (uiToken.isCancellationRequested) this.active?.cancel();
+          return await work(this.active!.token);
+        } finally { subscription.dispose(); }
+      });
+    } finally {
+      this.active?.dispose();
+      this.active = undefined;
+      this.busy = false;
+      if (!this.disposed) this.view.setLoading(false);
     }
   }
-
-  /**
-   * 注册导出文档命令
-   */
-  private registerExportDocsCommand(): void {
-    const generateDocsCommand = vscode.commands.registerCommand('codoc.readComments', async () => {
-      try {
-        // 如果有上一次生成的文档，先尝试清理
-        const lastMarkdownFile = this.resourceManager.getLastMarkdownFile();
-        if (lastMarkdownFile) {
-          this.resourceManager.cleanupTempFile(lastMarkdownFile);
-          this.resourceManager.setLastMarkdownFile(null);
-        }
-
-        const inputOptions = {
-          prompt: '请输入 <Git 分支名> 或 <Commit ID>',
-          placeHolder: '例如: master / HEAD / 4efa151 (留空则向前检索10次提交)',
-        };
-
-        let commitId = await vscode.window.showInputBox(inputOptions);
-
-        if (!commitId) {
-          commitId = 'HEAD~10';
-          await NotificationUtils.showAutoHideMessage('已使用默认提交ID: HEAD~10');
-        }
-
-        // 使用 Git 命令获取修改过的文件列表
-        const changedFiles = await this.gitService.getChangedFiles(commitId);
-        if (!changedFiles || changedFiles.length === 0) {
-          await NotificationUtils.showAutoHideMessage(`未找到 ${commitId} 中的修改文件`);
-          return;
-        }
-
-        await this.documentService.processDocs(changedFiles);
-      } catch (error: any) {
-        await NotificationUtils.showAutoHideError(`文档生成错误: ${error.message}`);
-        // 出错时也尝试清理资源
-        this.resourceManager.killRunningProcesses();
-      }
-    });
-
-    this.context.subscriptions.push(generateDocsCommand);
+  private folders(): readonly vscode.WorkspaceFolder[] | undefined {
+    const folders = vscode.workspace.workspaceFolders;
+    if (!folders?.length) { void vscode.window.showInformationMessage('请先打开工作区文件夹'); return undefined; }
+    return [...folders];
   }
-
-  /**
-   * 注册文档扫描命令
-   */
-  private registerDocScannerCommand(): void {
-    if (!this.docsViewProvider) return;
-
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (!workspaceFolders) return;
-
-    const docScanner = vscode.commands.registerCommand('codoc.scan', async () => {
-      try {
-        // 设置初始加载状态
-        this.docsViewProvider!.setLoading(true, '正在检索工作区');
-
-        // 同时在窗口中也显示一个简单的指示器
-        await vscode.window.withProgress({
-          location: vscode.ProgressLocation.Window,
-          title: 'CoDoc: Scanning...',
-          cancellable: false
-        }, async () => {
-          // 步骤1: 查找文件
-          const docParser = new DocParser(workspaceFolders[0].uri.fsPath);
-
-          // 获取项目设置的排除文件清单
-          const { FileExcludeUtils } = await import('../utils/FileExcludeUtils');
-          const excludePatterns = FileExcludeUtils.getWorkspaceExcludePatterns();
-
-          // 创建全局排除模式字符串
-          const excludeGlobPattern = excludePatterns.length > 0
-            ? `{${excludePatterns.join(',')}}`
-            : null;
-
-          this.logger.info(`使用排除规则: ${excludeGlobPattern || '无'}`);
-
-          // 使用排除文件清单查找需要解析的代码文件
-          const files = await vscode.workspace.findFiles(
-            '**/*.{js,jsx,ts,tsx,vue,java,go,php}',
-            excludeGlobPattern
-          );
-
-          // 更新 TreeView 中的状态
-          this.docsViewProvider!.setLoading(true, `正在解析 ${files.length} 个文件...`);
-
-          // 步骤2: 解析所有文件
-          const filePaths = files.map(file => file.fsPath);
-
-          // 解析文件
-          const results = docParser.parseFiles(filePaths);
-
-          // 更新视图并缓存结果
-          this.docsViewProvider?.updateDocs(results);
-
-          // 如果有缓存服务，则保存结果
-          if (this.cacheService) {
-            this.cacheService.saveScanResult(results);
-            this.logger.info('文档注释扫描结果已缓存');
-          }
-        });
-
-        this.logger.info('文档注释扫描完成');
-      } catch (error: any) {
-        this.logger.error('扫描文档注释时出错:', error);
-        await NotificationUtils.showAutoHideError('扫描文档注释时出错: ' + error.message);
-      } finally {
-        this.docsViewProvider!.setLoading(false);
-      }
-    });
-
-    this.context.subscriptions.push(docScanner);
+  private warnDirty(): void {
+    if (vscode.workspace.textDocuments.some(document => document.isDirty && document.uri.scheme === 'file')) {
+      void vscode.window.showWarningMessage('CoDoc 读取已保存的文件；未保存的编辑不会包含在本次结果中。');
+    }
   }
-
-  /**
-   * 注册按类型查看命令
-   */
-  private registerViewByTypeCommand(): void {
-    if (!this.docsViewProvider) return;
-
-    const viewByType = vscode.commands.registerCommand('codoc.viewByType', () => {
-      this.docsViewProvider!.setViewMode('byType');
+  private async scan(token: vscode.CancellationToken): Promise<DocResult | undefined> {
+    const folders = this.folders();
+    if (!folders) return undefined;
+    this.warnDirty();
+    const revision = this.view.revision;
+    const result = await this.documents.scanWorkspace(folders, token);
+    checkCancellation(token);
+    if (revision !== this.view.revision) throw new Error('扫描期间文件或工作区已变化，请重新扫描');
+    const timestamp = new Date().toISOString();
+    await this.cache.saveScanResult(result, folders.map(folder => folder.uri.fsPath), timestamp, () => {
+      checkCancellation(token);
+      if (revision !== this.view.revision) throw new Error('扫描期间文件或工作区已变化，请重新扫描');
+      this.view.updateDocs(result, timestamp);
     });
-
-    this.context.subscriptions.push(viewByType);
+    return result;
   }
-
-  /**
-   * 注册按领域查看命令
-   */
-  private registerViewByDomainCommand(): void {
-    if (!this.docsViewProvider) return;
-
-    const viewByDomain = vscode.commands.registerCommand('codoc.viewByDomain', () => {
-      this.docsViewProvider!.setViewMode('byDomain');
-    });
-
-    this.context.subscriptions.push(viewByDomain);
+  private async exportGit(token: vscode.CancellationToken): Promise<vscode.Uri | undefined> {
+    const folders = this.folders();
+    if (!folders) return;
+    let folder = folders[0];
+    if (folders.length > 1) {
+      const selected = await vscode.window.showQuickPick(folders.map(item => ({ label: item.name, description: item.uri.fsPath, folder: item })), { title: '选择 Git 仓库所在工作区目录' }, token);
+      if (!selected) return;
+      folder = selected.folder;
+    }
+    const reference = await vscode.window.showInputBox({ prompt: '输入 Git 分支或提交（与已保存工作区比较；不包含未跟踪文件）', value: 'HEAD', placeHolder: 'HEAD' }, token);
+    if (reference === undefined) return;
+    checkCancellation(token);
+    this.warnDirty();
+    const changed = await this.git.getChangedFiles(folder.uri.fsPath, reference || 'HEAD', token);
+    const result = await this.documents.parseDocuments(changed.root, changed.files, token);
+    checkCancellation(token);
+    const selected = await this.documents.processResultFilter(result, token);
+    checkCancellation(token);
+    if (selected) return this.documents.showMarkdownResult(selected);
   }
-
-  /**
-   * 注册按需求查看命令
-   */
-  private registerViewByReqCommand(): void {
-    if (!this.docsViewProvider) return;
-
-    const viewByReq = vscode.commands.registerCommand('codoc.viewByReq', () => {
-      this.docsViewProvider!.setViewMode('byReq');
-    });
-
-    this.context.subscriptions.push(viewByReq);
-  }
-
-  /**
-   * 注册从视图中导出文档命令
-   */
-  private registerExportDocsFromViewCommand(): void {
-    if (!this.docsViewProvider) return;
-
-    const exportDocs = vscode.commands.registerCommand('codoc.exportDocs', () => {
-      this.docsViewProvider!.exportDocs(this.documentService);
-    });
-
-    this.context.subscriptions.push(exportDocs);
-  }
+  public dispose(): void { this.disposed = true; this.active?.cancel(); }
 }

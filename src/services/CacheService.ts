@@ -1,155 +1,68 @@
-import * as vscode from 'vscode';
-import * as fs from 'fs';
 import * as path from 'path';
+import * as vscode from 'vscode';
+import { DocItem, DocResult } from '../models/DocModels';
+import { BlockUtils } from '../utils/BlockUtils';
 import { LogService } from './LogService';
-import { DocResult } from '../models/DocModels';
 
-/**
- * 缓存服务 - 管理文档扫描结果的缓存
- */
+interface Snapshot { version: 1; timestamp: string; roots: string[]; result: DocResult; }
+function stringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every(item => typeof item === 'string');
+}
+function validItem(value: unknown, roots: string[]): value is DocItem {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Partial<DocItem>;
+  if (typeof item.workspaceRoot !== 'string' || !roots.includes(item.workspaceRoot) || typeof item.file !== 'string' || path.isAbsolute(item.file)) return false;
+  const relative = path.relative(item.workspaceRoot, path.resolve(item.workspaceRoot, item.file));
+  return !relative.startsWith(`..${path.sep}`) && relative !== '..' && !item.file.includes('\0') &&
+    typeof item.type === 'string' && BlockUtils.blockTypeSet.has(item.type) &&
+    typeof item.title === 'string' && typeof item.content === 'string' &&
+    Number.isInteger(item.line) && (item.line ?? 0) > 0 && Number.isInteger(item.endLine) && (item.endLine ?? 0) >= (item.line ?? 0) &&
+    stringArray(item.req) && stringArray(item.domain) &&
+    (item.primaryId === undefined || typeof item.primaryId === 'string') &&
+    (item.check_code === undefined || typeof item.check_code === 'string') &&
+    (item.check_code_language === undefined || typeof item.check_code_language === 'string');
+}
+
 export class CacheService {
-  private logger: LogService;
-  private cacheFilePath: string | null = null;
-  private cacheDirPath: string = path.join('.vscode', 'codoc');
-  private cacheFileName: string = 'scan-cache.json';
-
-  /**
-   * 构造函数
-   * @param logger 日志服务实例
-   */
-  constructor(logger: LogService) {
-    this.logger = logger;
-  }
-
-  /**
-   * 初始化缓存目录和文件路径
-   * @param workspaceRoot 工作区根路径
-   */
-  public initialize(workspaceRoot: string | undefined): void {
-    if (!workspaceRoot) {
-      this.logger.warn('未打开工作区，无法初始化缓存');
-      return;
+  constructor(private readonly storage: vscode.Uri | undefined, private readonly logger: LogService) {}
+  private get file(): vscode.Uri | undefined { return this.storage && vscode.Uri.joinPath(this.storage, 'scan-cache-v1.json'); }
+  public async loadScanResult(roots: string[]): Promise<Snapshot | undefined> {
+    if (!this.file) return undefined;
+    try {
+      const data: unknown = JSON.parse(Buffer.from(await vscode.workspace.fs.readFile(this.file)).toString('utf8'));
+      if (!data || typeof data !== 'object') return undefined;
+      const snapshot = data as Partial<Snapshot>;
+      if (snapshot.version !== 1 || typeof snapshot.timestamp !== 'string' || !Number.isFinite(Date.parse(snapshot.timestamp)) ||
+        !stringArray(snapshot.roots) || JSON.stringify([...snapshot.roots].sort()) !== JSON.stringify([...roots].sort()) ||
+        !Array.isArray(snapshot.result) || !snapshot.result.every(item => validItem(item, roots))) {
+        this.logger.warn('扫描缓存不兼容或已损坏，请重新扫描');
+        return undefined;
+      }
+      return snapshot as Snapshot;
+    } catch (error) {
+      if ((error as { code?: string }).code !== 'FileNotFound') this.logger.warn('无法加载扫描缓存，将使用新扫描结果');
+      return undefined;
     }
-
-    // 设置缓存目录和文件路径
-    const cacheDirPath = path.join(workspaceRoot, this.cacheDirPath);
-    this.cacheFilePath = path.join(cacheDirPath, this.cacheFileName);
-
-    // 确保缓存目录存在
-    if (!fs.existsSync(cacheDirPath)) {
+  }
+  public async saveScanResult(result: DocResult, roots: string[], timestamp: string, commit: () => void = () => {}): Promise<void> {
+    if (!this.storage || !this.file) { commit(); return; }
+    const temporary = vscode.Uri.joinPath(this.storage, 'scan-cache-v1.tmp');
+    let prepared = false;
+    try {
       try {
-        fs.mkdirSync(cacheDirPath, { recursive: true });
-        this.logger.info(`创建缓存目录: ${cacheDirPath}`);
-      } catch (error) {
-        this.logger.error(`创建缓存目录失败`, error);
-        this.cacheFilePath = null;
+        await vscode.workspace.fs.createDirectory(this.storage);
+        await vscode.workspace.fs.writeFile(temporary, Buffer.from(JSON.stringify({ version: 1, timestamp, roots, result })));
+        prepared = true;
+      } catch (error) { this.logger.warn(`缓存准备失败: ${String(error)}`); }
+      // Commit synchronously after the last cancellable step. A rejected scan
+      // must never replace the preceding successful cache or view.
+      commit();
+      if (prepared) {
+        try { await vscode.workspace.fs.rename(temporary, this.file, { overwrite: true }); }
+        catch (error) { this.logger.warn(`扫描成功，但缓存保存失败: ${String(error)}`); }
       }
+    } finally {
+      await vscode.workspace.fs.delete(temporary).then(() => {}, () => {});
     }
-  }
-
-  /**
-   * 保存扫描结果到缓存文件
-   * @param scanResult 扫描结果
-   * @returns 是否成功保存
-   */
-  public saveScanResult(scanResult: DocResult, timestamp?: Date | undefined): boolean {
-    if (!this.cacheFilePath) {
-      this.logger.warn('缓存路径未初始化，无法保存');
-      return false;
-    }
-
-    try {
-      // 确保包含时间戳信息
-      const cacheData = {
-        timestamp: timestamp ? timestamp.toISOString() : new Date().toISOString(),
-        result: scanResult
-      };
-
-      fs.writeFileSync(
-        this.cacheFilePath,
-        JSON.stringify(cacheData, null, 2),
-        { encoding: 'utf8' }
-      );
-
-      this.logger.info(`扫描结果已缓存到: ${this.cacheFilePath}`);
-      return true;
-    } catch (error) {
-      this.logger.error(`保存缓存文件失败`, error);
-      return false;
-    }
-  }
-
-  /**
-   * 从缓存文件加载扫描结果
-   * @returns 缓存的扫描结果，如果没有缓存返回 null
-   */
-  public loadScanResult(): { timestamp: string; result: DocResult } | null {
-    if (!this.cacheFilePath || !fs.existsSync(this.cacheFilePath)) {
-      this.logger.info('缓存文件不存在，无法加载');
-      return null;
-    }
-
-    try {
-      const cacheContent = fs.readFileSync(this.cacheFilePath, { encoding: 'utf8' });
-      const cacheData = JSON.parse(cacheContent);
-
-      // 验证缓存数据格式
-      if (!cacheData.timestamp || !cacheData.result) {
-        this.logger.error('缓存文件格式错误');
-        return null;
-      }
-
-      this.logger.info(`从缓存加载扫描结果: ${this.cacheFilePath} (${cacheData.timestamp})`);
-      return cacheData;
-    } catch (error) {
-      this.logger.error(`读取缓存文件失败`, error);
-      return null;
-    }
-  }
-
-  /**
-   * 清除缓存文件
-   */
-  public clearCache(): boolean {
-    if (!this.cacheFilePath || !fs.existsSync(this.cacheFilePath)) {
-      return true; // 文件已经不存在，视为清除成功
-    }
-
-    try {
-      fs.unlinkSync(this.cacheFilePath);
-      this.logger.info(`已清除缓存文件: ${this.cacheFilePath}`);
-      return true;
-    } catch (error) {
-      this.logger.error(`清除缓存文件失败`, error);
-      return false;
-    }
-  }
-
-  /**
-   * 获取缓存状态
-   * @returns 缓存状态信息
-   */
-  public getCacheStatus(): { exists: boolean; timestamp?: string } {
-    if (!this.cacheFilePath || !fs.existsSync(this.cacheFilePath)) {
-      return { exists: false };
-    }
-
-    try {
-      const cacheContent = fs.readFileSync(this.cacheFilePath, { encoding: 'utf8' });
-      const cacheData = JSON.parse(cacheContent);
-      return {
-        exists: true,
-        timestamp: cacheData.timestamp
-      };
-    } catch (error) {
-      return { exists: false };
-    }
-  }
-
-  /**
-   * 释放资源
-   */
-  public dispose(): void {
-    // 目前无需释放资源
   }
 }

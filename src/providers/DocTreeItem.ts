@@ -1,32 +1,18 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-
 import { DocItem } from '../models/DocModels';
+import { DocGroup } from './types';
 
-/**
- * 文档树节点类型
- */
 export class DocTreeItem extends vscode.TreeItem {
-  constructor(
-    public readonly label: string,
-    public readonly collapsibleState: vscode.TreeItemCollapsibleState,
-    private readonly workspaceRoot: string,
-    public readonly command?: vscode.Command,
-    public readonly description?: string,
-    public readonly docItem?: DocItem,
-    public readonly contextValue?: string
-  ) {
-    super(label, collapsibleState);
-    this.description = description;
-    this.contextValue = contextValue;
-    if (docItem) {
-      this.tooltip = `${docItem.title}\n${docItem.file}:${docItem.line}`;
-      const absolutePath = path.isAbsolute(docItem.file) ? docItem.file : path.join(workspaceRoot, docItem.file);
-      this.command = {
-        command: 'vscode.open',
-        title: 'Open File',
-        arguments: [vscode.Uri.file(absolutePath), { selection: new vscode.Range(docItem.line, 0, docItem.line, 0) }]
-      };
+  constructor(label: string, public readonly group?: DocGroup, item?: DocItem) {
+    super(label, group ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
+    this.contextValue = group?.kind || (item ? 'annotation' : 'status');
+    if (item) {
+      const uri = vscode.Uri.file(path.resolve(item.workspaceRoot, item.file));
+      const line = Math.max(0, item.line - 1);
+      this.description = `${path.basename(item.workspaceRoot)}/${item.file}:${item.line}`;
+      this.tooltip = `${item.title}\n${uri.fsPath}:${item.line}`;
+      this.command = { command: 'vscode.open', title: '打开注释位置', arguments: [uri, { selection: new vscode.Range(line, 0, line, 0) }] };
     }
   }
 }

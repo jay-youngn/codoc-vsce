@@ -1,104 +1,43 @@
 import * as vscode from 'vscode';
-import { LogService } from './LogService';
 
-/**
- * 配置服务 - 处理扩展配置相关功能
- */
+type Tag = Record<string, unknown>;
+function owned(tag: Tag): boolean { return typeof tag.source === 'string' && tag.source.startsWith('codoc:'); }
+function tags(value: unknown): Tag[] {
+  if (!Array.isArray(value) || value.some(item => !item || typeof item !== 'object' || Array.isArray(item))) throw new Error('Better Comments 标签配置必须是对象数组');
+  return value as Tag[];
+}
 export class ConfigService {
-  private logger: LogService;
-
-  constructor(logger: LogService) {
-    this.logger = logger;
-  }
-
-  /**
-   * 应用Better Comments配置
-   */
-  public async applyBetterCommentsConfig(): Promise<void> {
-    try {
-      // 获取扩展配置
-      const config = vscode.workspace.getConfiguration('codoc');
-      const highlightEnabled = config.get<boolean>('highlightEnabled', true);
-
-      if (!highlightEnabled) {
-        this.logger.warn('文档注释高亮功能已禁用');
-        return;
-      }
-
-      // 检查Better Comments扩展是否已安装
-      const betterCommentsExtension = vscode.extensions.getExtension('edwinhuish.better-comments-next');
-
-      if (!betterCommentsExtension) {
-        this.logger.warn('未找到Better Comments Next扩展，注释高亮功能将不可用');
-        // 提示用户安装Better Comments扩展
-        const installAction = '安装扩展';
-        const result = await vscode.window.showWarningMessage(
-          '要启用注释高亮功能，需要安装Better Comments Next扩展',
-          installAction
-        );
-
-        if (result === installAction) {
-          // 打开VS Code扩展市场
-          await vscode.commands.executeCommand(
-            'workbench.extensions.installExtension',
-            'edwinhuish.better-comments-next'
-          );
-        }
-        return;
-      }
-
-      // 确保Better Comments扩展已激活
-      if (!betterCommentsExtension.isActive) {
-        await betterCommentsExtension.activate();
-      }
-
-      // 更新Better Comments配置
-      const betterComments = vscode.workspace.getConfiguration('better-comments');
-
-      // 当前插件推荐的配置
-      const recommendBetterCommentsTags = config.get<Array<any>>('better-comments.tags', []);
-      if (recommendBetterCommentsTags.length < 1) {
-        return;
-      }
-
-      // 获取现有标签
-      const existingTags = betterComments.get<Array<any>>('tags', []);
-
-      // 创建标签映射以便于查找
-      const tagMap = new Map();
-      const updatedTags = [];
-      if (existingTags.length > 0) {
-        const filterSources = new Set();
-        existingTags.forEach((tag: any) => {
-          if (String(tag.source).includes('codoc')) {
-            filterSources.add(tag.source);
-          }
-
-          tagMap.set(tag.tag, tag);
-        });
-
-        recommendBetterCommentsTags.filter((tag: any) => {
-          return !filterSources.has(tag.source);
-        }).forEach((tag: any) => {
-          tagMap.set(tag.tag, tag);
-        });
-        updatedTags.push(...tagMap.values());
-      } else {
-        updatedTags.push(...recommendBetterCommentsTags);
-      }
-
-      await betterComments.update('tags', updatedTags, vscode.ConfigurationTarget.Global);
-
-      this.logger.info('文档注释高亮配置已应用');
-    } catch (error: any) {
-      this.logger.error(`应用高亮配置时出错: ${error.message}`);
+  public async configureHighlighting(): Promise<void> {
+    const action = await vscode.window.showQuickPick([
+      { label: '应用／更新 CoDoc 高亮', action: 'apply' as const },
+      { label: '移除 CoDoc 高亮', action: 'remove' as const },
+    ], { title: '配置 Better Comments 高亮（仅处理 CoDoc 标签）' });
+    if (!action) return;
+    const targets = [{ label: '用户设置（可清理旧版全局标签）', target: vscode.ConfigurationTarget.Global }];
+    if (vscode.workspace.workspaceFolders?.length) targets.unshift({ label: '工作区设置', target: vscode.ConfigurationTarget.Workspace });
+    const target = await vscode.window.showQuickPick(targets, { title: '选择配置作用域' });
+    if (!target) return;
+    await this.updateTags(action.action, target.target);
+    void vscode.window.showInformationMessage(action.action === 'apply' ? 'CoDoc 高亮配置已应用' : '所选作用域中的 CoDoc 高亮已移除');
+    if (action.action === 'apply' && !vscode.extensions.getExtension('edwinhuish.better-comments-next')) {
+      void vscode.window.showWarningMessage('高亮配置已保存；安装 Better Comments Next 后生效。扫描和导出无需该扩展。');
     }
   }
-
-  /**
-   * 释放资源
-   */
-  public dispose(): void {
-    // 当前无需释放资源
+  public async updateTags(action: 'apply' | 'remove', target: vscode.ConfigurationTarget): Promise<void> {
+    const codoc = vscode.workspace.getConfiguration('codoc');
+    if (action === 'apply' && !codoc.get<boolean>('highlightEnabled', true)) throw new Error('请先启用 codoc.highlightEnabled，再运行配置高亮命令');
+    const config = vscode.workspace.getConfiguration('better-comments');
+    const inspected = config.inspect<unknown>('tags');
+    const ownValue = target === vscode.ConfigurationTarget.Global ? inspected?.globalValue : inspected?.workspaceValue;
+    // Read the chosen scope, not a higher-precedence workspace/folder override.
+    const inherited = target === vscode.ConfigurationTarget.Global ? inspected?.defaultValue : inspected?.globalValue ?? inspected?.defaultValue;
+    const existing = tags(ownValue ?? inherited ?? []);
+    const next = existing.filter(tag => !owned(tag));
+    if (action === 'apply') {
+      const recommended = tags(codoc.get<unknown>('better-comments.tags', [])).filter(owned);
+      if (!recommended.length) throw new Error('未配置有效的 CoDoc 高亮标签');
+      next.push(...recommended);
+    }
+    if (JSON.stringify(next) !== JSON.stringify(existing)) await config.update('tags', next, target);
   }
 }

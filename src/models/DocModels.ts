@@ -1,42 +1,34 @@
-/**
- * 代码文档注释项
- */
+/** One annotation at one source location. IDs never replace its source identity. */
 export interface DocItem {
-  sn?: number; // 序号
+  type: string;
+  primaryId?: string;
+  req: string[];
+  domain: string[];
+  workspaceRoot: string;
   file: string;
+  /** One-based coordinates; convert only at the VS Code boundary. */
   line: number;
+  endLine: number;
   title: string;
   content: string;
-  req?: string | string[];  // 支持单个值或数组
-  domain?: string | string[];  // 支持单个值或数组
   check_code?: string;
   check_code_language?: string;
 }
-
-/**
- * 文档分组结果 (按需求分组)
- */
-export interface DocResult {
-  [reqId: string]: {
-    [blockType: string]: DocItem[];
-  };
+export type DocResult = DocItem[];
+export const UNASSIGNED = '未关联需求';
+export function associatedIds(item: DocItem): string[] {
+  return [...new Set([item.primaryId, ...item.req].filter((id): id is string => Boolean(id)))];
 }
-
-/**
- * 支持的编程语言映射
- */
-export interface LanguageMap {
-  [extension: string]: string;
+export function sourceKey(item: DocItem): string {
+  return JSON.stringify([item.workspaceRoot, item.file, item.line, item.type]);
 }
-
-/**
- * 代码块匹配结果
- */
-export interface BlockMatch {
-  blockType: string;
-  reqId: string;
-  title: string;
-  fieldsContent: string;
-  startIndex: number;
-  endIndex: number;
+export function uniqueDocs(items: DocResult): DocResult {
+  return [...new Map(items.map(item => [sourceKey(item), item])).values()];
+}
+export interface Cancellation { readonly isCancellationRequested: boolean; }
+export class ScanCancelled extends Error {
+  constructor() { super('操作已取消'); this.name = 'ScanCancelled'; }
+}
+export function checkCancellation(token?: Cancellation): void {
+  if (token?.isCancellationRequested) throw new ScanCancelled();
 }

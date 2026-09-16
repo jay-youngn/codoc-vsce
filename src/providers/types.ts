@@ -1,5 +1,2 @@
-
-/**
- * 树视图显示模式
- */
-type ViewMode = 'byType' | 'byDomain' | 'byReq';
+export type ViewMode = 'byType' | 'byDomain' | 'byReq';
+export interface DocGroup { kind: 'type' | 'domain' | 'req'; key: string; reqId?: string; }

@@ -1,81 +1,58 @@
-import { spawn } from 'child_process';
+import { ChildProcess, spawn } from 'child_process';
 import * as path from 'path';
-import * as vscode from 'vscode';
-import { LogService } from './LogService';
+import type { CancellationToken } from 'vscode';
+import { ScanCancelled, checkCancellation } from '../models/DocModels';
 
-/**
- * Git服务 - 处理与Git相关的操作
- */
 export class GitService {
-  private outputChannel: LogService;
+  private readonly running = new Map<ChildProcess, () => void>();
+  private disposed = false;
 
-  constructor(outputChannel: LogService) {
-    this.outputChannel = outputChannel;
+  private run(cwd: string, args: string[], token?: CancellationToken): Promise<Buffer> {
+    checkCancellation(token);
+    if (this.disposed) return Promise.reject(new ScanCancelled());
+    return new Promise((resolve, reject) => {
+      const child = spawn('git', args, { cwd, shell: false, windowsHide: true });
+      const stdout: Buffer[] = [];
+      const stderr: Buffer[] = [];
+      let bytes = 0;
+      let settled = false;
+      let cancelSubscription: { dispose(): void } | undefined;
+      const finish = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        cancelSubscription?.dispose();
+        this.running.delete(child);
+        if (error) reject(error);
+        else resolve(Buffer.concat(stdout));
+      };
+      const stop = (error: Error) => { finish(error); child.kill(); };
+      const timer = setTimeout(() => stop(new Error('Git 操作超时')), 60_000);
+      const cancel = () => stop(new ScanCancelled());
+      this.running.set(child, cancel);
+      cancelSubscription = token?.onCancellationRequested(cancel);
+      if (token?.isCancellationRequested) cancel();
+      child.stdout?.on('data', (chunk: Buffer) => {
+        bytes += chunk.length;
+        if (bytes > 16 * 1024 * 1024) stop(new Error('Git 输出过大，无法安全处理'));
+        else stdout.push(chunk);
+      });
+      child.stderr?.on('data', (chunk: Buffer) => { if (stderr.length < 64) stderr.push(chunk); });
+      child.on('error', error => finish(new Error(`无法运行 Git: ${error.message}`)));
+      child.on('close', code => finish(code === 0 ? undefined : new Error(`Git 操作失败: ${Buffer.concat(stderr).toString('utf8').trim() || code}`)));
+    });
   }
 
-  /**
-   * 使用 Git 命令获取修改过的文件列表
-   * @param commitId Git 分支名或提交 ID
-   * @returns 修改的文件路径列表
-   */
-  public async getChangedFiles(commitId: string): Promise<string[]> {
-    return new Promise((resolve, reject) => {
-      const workspaceFolders = vscode.workspace.workspaceFolders;
-      if (!workspaceFolders || workspaceFolders.length === 0) {
-        reject(new Error('未打开工作区文件夹'));
-        return;
-      }
-
-      const rootPath = workspaceFolders[0].uri.fsPath;
-
-      // 构建 Git 命令：获取指定 commitId 相对于当前工作区的更改文件列表
-      const gitCommand = `git diff --name-only ${commitId}`;
-
-      const gitProcess = spawn('bash', ['-c', gitCommand], {
-        cwd: rootPath,
-      });
-
-      // 使用数组收集输出，避免大量字符串拼接
-      const outputChunks: Buffer[] = [];
-      const errorChunks: Buffer[] = [];
-
-      gitProcess.stdout.on('data', (data: Buffer) => {
-        outputChunks.push(data);
-      });
-
-      gitProcess.stderr.on('data', (data: Buffer) => {
-        errorChunks.push(data);
-      });
-
-      gitProcess.on('close', (code: number) => {
-        if (code !== 0) {
-          const errorOutput = Buffer.concat(errorChunks).toString();
-          reject(new Error(`Git 命令执行失败: ${errorOutput}`));
-          // 清理引用
-          outputChunks.length = 0;
-          errorChunks.length = 0;
-          return;
-        }
-
-        // 将输出合并并分割为文件路径列表，并过滤掉空行
-        const output = Buffer.concat(outputChunks).toString();
-        const files = output.split('\n')
-          .filter((line) => line.trim() !== '')
-          .map((relativePath) => path.resolve(rootPath, relativePath));
-
-        // 清理引用
-        outputChunks.length = 0;
-        errorChunks.length = 0;
-
-        resolve(files);
-      });
-
-      gitProcess.on('error', (err: Error) => {
-        // 清理引用
-        outputChunks.length = 0;
-        errorChunks.length = 0;
-        reject(new Error(`无法执行 Git 命令: ${err.message}`));
-      });
-    });
+  public async getChangedFiles(workspacePath: string, reference: string, token?: CancellationToken): Promise<{ root: string; files: string[] }> {
+    const root = (await this.run(workspacePath, ['rev-parse', '--show-toplevel'], token)).toString('utf8').trimEnd();
+    // Resolve the user input to a commit before using it in diff; never invoke a shell.
+    const commit = (await this.run(root, ['rev-parse', '--verify', '--end-of-options', `${reference.trim() || 'HEAD'}^{commit}`], token)).toString('utf8').trim();
+    if (!/^[a-f0-9]{40,64}$/i.test(commit)) throw new Error('无法解析提交引用');
+    const output = await this.run(root, ['diff', '--name-only', '-z', '--diff-filter=ACMRT', commit, '--'], token);
+    return { root, files: output.toString('utf8').split('\0').filter(Boolean).map(file => path.resolve(root, file)) };
+  }
+  public dispose(): void {
+    this.disposed = true;
+    for (const cancel of [...this.running.values()]) cancel();
   }
 }

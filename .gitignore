@@ -1,9 +1,9 @@
-.vscode/
+node_modules/
+dist/
+out/
+.vscode-test/
+*.vsix
+.vscode/*
 !.vscode/launch.json
 !.vscode/tasks.json
 !.vscode/extensions.json
-
-/dist/
-/out/
-node_modules
-*.vsix

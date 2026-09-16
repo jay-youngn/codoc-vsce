@@ -2,26 +2,23 @@
   "name": "codoc",
   "publisher": "jay-youngn",
   "displayName": "CoDoc",
-  "description": "A VS Code extension for generating structured code documentation comments",
-  "version": "0.0.3",
+  "description": "Browse and export structured engineering comments",
+  "version": "0.0.4",
   "icon": "resources/doc.png",
   "engines": {
-    "vscode": "^1.80.0"
+    "vscode": "^1.137.0"
   },
   "categories": [
-    "Formatters",
+    "Other",
     "Snippets"
   ],
   "repository": {
     "type": "git",
-    "url": "https://gitlab.linctex.com/devops/docs-as-code/vscode-extension"
+    "url": "https://github.com/jay-youngn/codoc-vsce"
   },
-  "extensionDependencies": [
-    "edwinhuish.better-comments-next"
-  ],
   "main": "./dist/extension.js",
   "activationEvents": [
-    "onStartupFinished"
+    "onView:codoc-tree"
   ],
   "contributes": {
     "viewsContainers": {
@@ -48,48 +45,51 @@
       {
         "category": "CoDoc",
         "command": "codoc.scan",
-        "enablement": "view == codoc-tree && codoc.scanEnabled",
         "icon": "$(refresh)",
         "title": "扫描文档注释"
       },
       {
         "category": "CoDoc",
         "command": "codoc.exportDocs",
-        "enablement": "view == codoc-tree && codoc.exportEnabled",
         "icon": "$(link-external)",
         "title": "导出文档注释"
       },
       {
         "category": "CoDoc",
         "command": "codoc.viewByType",
-        "enablement": "view == codoc-tree && codoc.viewModeEnabled",
         "title": "按类型查看"
       },
       {
         "category": "CoDoc",
         "command": "codoc.viewByDomain",
-        "enablement": "view == codoc-tree && codoc.viewModeEnabled",
         "title": "按领域查看"
       },
       {
         "category": "CoDoc",
         "command": "codoc.viewByReq",
-        "enablement": "view == codoc-tree && codoc.viewModeEnabled",
         "title": "按需求查看"
       },
       {
         "category": "CoDoc",
         "command": "codoc.filter",
-        "enablement": "view == codoc-tree && codoc.filterEnabled",
         "icon": "$(filter)",
         "title": "筛选文档"
       },
       {
         "category": "CoDoc",
         "command": "codoc.filterClear",
-        "enablement": "view == codoc-tree && codoc.filterClearEnabled",
         "icon": "$(clear-all)",
         "title": "清除筛选"
+      },
+      {
+        "category": "CoDoc",
+        "command": "codoc.readComments",
+        "title": "从 Git 变更文件导出文档注释"
+      },
+      {
+        "category": "CoDoc",
+        "command": "codoc.configureHighlighting",
+        "title": "配置注释高亮"
       }
     ],
     "snippets": [
@@ -171,39 +171,7 @@
         "codoc.highlightEnabled": {
           "type": "boolean",
           "default": true,
-          "description": "是否启用文档注释高亮"
-        },
-        "codoc.better-comments.languages": {
-          "type": "array",
-          "default": [
-            {
-              "id": "proto3",
-              "comments": {
-                "lineComment": "//"
-              },
-              "embeddedLanguages": [
-                "proto3"
-              ]
-            }
-          ]
-        },
-        "codoc.decorator.regexes": {
-          "type": "object",
-          "description": "Object mapping regexes to an array of decorations to apply to the capturing groups",
-          "default": {
-            "(?:\\/\\/\\s*)(@summary)": {
-              "decorationType": {
-                "light": {
-                  "color": "#3498DB",
-                  "fontStyle": "italic"
-                },
-                "dark": {
-                  "color": "#3498DB",
-                  "fontStyle": "italic"
-                }
-              }
-            }
-          }
+          "description": "允许手动应用 CoDoc 高亮。更改后运行「CoDoc: 配置注释高亮」应用或移除；不会在启动时修改设置。"
         },
         "codoc.better-comments.tags": {
           "type": "array",
@@ -211,7 +179,7 @@
             {
               "tag": [
                 "@summary",
-                "@endsummary"
+                "@endSummary"
               ],
               "source": "codoc:summary",
               "multiline": true,
@@ -241,7 +209,7 @@
             {
               "tag": [
                 "@fix",
-                "@endfix"
+                "@endFix"
               ],
               "source": "codoc:fix",
               "multiline": true,
@@ -251,7 +219,7 @@
             {
               "tag": [
                 "@feature",
-                "@endfeature"
+                "@endFeature"
               ],
               "source": "codoc:feature",
               "multiline": true,
@@ -259,36 +227,50 @@
               "color": "#CE91C8"
             }
           ],
-          "description": "Better Comments 扩展的配置项模板，辅助进行文档注释的高亮显示"
+          "description": "Better Comments Next 标签模板。更改后运行「CoDoc: 配置注释高亮」重新应用，仅管理 source 以 codoc: 开头的标签。"
         }
       }
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run package",
-    "compile": "webpack",
-    "watch": "webpack --watch",
-    "package": "webpack --mode production --devtool hidden-source-map",
-    "compile-tests": "tsc -p . --outDir out",
-    "watch-tests": "tsc -p . -w --outDir out",
-    "pretest": "npm run compile-tests && npm run compile && npm run lint",
-    "lint": "tslint -p .",
-    "test": "node ./out/test/runTest.js",
-    "build": "tsc -p ./",
-    "deploy": "vsce package"
+    "vscode:prepublish": "npm run build:production",
+    "compile": "npm run typecheck && node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit -p .",
+    "typecheck:watch": "tsc --noEmit --watch -p .",
+    "build": "npm run compile",
+    "build:production": "npm run typecheck && node esbuild.mjs --production",
+    "compile-tests": "tsc -p .",
+    "test": "npm run compile-tests && node --test test/*.test.cjs",
+    "lint": "eslint src test scripts esbuild.mjs eslint.config.mjs",
+    "verify": "npm run typecheck && npm run lint && npm test && npm run build:production",
+    "package": "npm run package:vsix",
+    "package:vsix": "vsce package --out codoc-0.0.4.vsix && npm run package:verify",
+    "package:verify": "node scripts/verify-vsix.mjs",
+    "test:vsix": "node scripts/test-vsix.mjs",
+    "deploy": "npm run package:vsix"
   },
   "keywords": [],
   "author": "",
   "license": "MIT",
   "type": "commonjs",
   "devDependencies": {
-    "@types/minimatch": "^5.1.2",
-    "@types/node": "^22.14.0",
-    "@types/vscode": "^1.80.0",
-    "minimatch": "^10.0.1",
-    "ts-loader": "^9.5.2",
-    "typescript": "^5.8.3",
-    "webpack": "^5.99.5",
-    "webpack-cli": "^6.0.1"
+    "@eslint/js": "^9.39.1",
+    "@types/node": "24.13.5",
+    "@types/vscode": "1.137.0",
+    "@vscode/test-electron": "2.5.2",
+    "@vscode/vsce": "4.0.0",
+    "esbuild": "0.28.2",
+    "eslint": "^9.39.1",
+    "globals": "^16.5.0",
+    "typescript": "5.8.3",
+    "typescript-eslint": "^8.49.0",
+    "yauzl": "^3.4.0"
+  },
+  "vsce": {
+    "dependencies": false
+  },
+  "dependencies": {
+    "minimatch": "^9.0.9"
   }
 }
